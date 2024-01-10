@@ -13,7 +13,7 @@ Load_generator
  1. Prompts user for number or workloads. This is input an integer. Workloads include compute, network and storage, or anything if we understand how what we are observing works. 
  2. Prompts user for number of integers to assign to a given load.
  3. X number of workloads are created as individual json files.
- 4. Each Json file contains a KVP workload names, number of loads (3 initial load lists) and the integers that compromise the individual loads, and a value random value. 
+ 4. Each Json file contains a KVP workload names, number of loads (3 initial load lists(represented as arrays)) and the floats that compromise the individual loads, and a random value for the workload. 
 
 Load_analyzer
 1. Ingests all correctly formatted json files with the name Workload*.json
