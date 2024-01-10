@@ -32,4 +32,6 @@ BenchMark Hardware: Ryzen 1920, 128GB 2666hz mem.
 12:56:33 Finish 10000 workload 30000(3X loads with 10k floats) metric generation. 
 
 12:57:00 Start workload analyzing. 
-12:59:20 Finish workload analyzing. 
+12:59:20 Finish workload analyzing.
+100,000 datapoints. 
+
