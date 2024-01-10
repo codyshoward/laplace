@@ -1,5 +1,7 @@
 Welcome to Laplace, a tool for observing and balancing work. 
+
 Created and maintined by Cody S Howard. Contact: codyshoward@gmail.com
+
 "One is all, all is one." - Yomi no Tsugai
 
 Update: 01/10/2024
