@@ -26,6 +26,9 @@ type Workload struct {
     TotalRelativeLoad     float64
     RelativeCost          float64
     TotalCost             float64
+    VolatilityLoad1       float64
+    VolatilityLoad2       float64
+    VolatilityLoad3       float64
 }
 
 type Data struct {
@@ -106,6 +109,7 @@ func CalculateWorkloadStats(data *Data) (float64, float64, float64, float64, flo
         totalLoad3 += workload.TotalLoad3
         totalValueGenerated += workload.ValueGenerated
         totalCost = (totalLoad1 + totalLoad2 + totalLoad3)
+        workload.calculateVolatility()
     }
 
     // Total load sum
@@ -171,6 +175,9 @@ func calculateRelativeContributionsAndDeviations(workload *Workload, grandTotalL
     fmt.Printf("  Relative Load 1: %.2f%%\n", workload.RelativeLoad1)
     fmt.Printf("  Relative Load 2: %.2f%%\n", workload.RelativeLoad2)
     fmt.Printf("  Relative Load 3: %.2f%%\n", workload.RelativeLoad3)
+    fmt.Printf("  Load 1 Volatility: %.2f%%\n", workload.VolatilityLoad1)
+    fmt.Printf("  Load 2 Volatility: %.2f%%\n", workload.VolatilityLoad2)
+    fmt.Printf("  Load 3 Volatility: %.2f%%\n", workload.VolatilityLoad3)
     fmt.Printf("  Total Cost: %.2f\n", workload.TotalCost)
     fmt.Printf("  Total Relative Load and Cost: %.2f%%\n", workload.RelativeCost)
     fmt.Printf("  Relative Value Generated: %.2f%%\n", workload.RelativeValueGenerated)
@@ -212,4 +219,39 @@ func CalculateGrandSums(data *Data, grandTotalLoad1, grandTotalLoad2, grandTotal
 
 func calculateTotalCost(workload *Workload) float64 {
     return workload.TotalLoad1 + workload.TotalLoad2 + workload.TotalLoad3
+}
+func (w *Workload) calculateVolatility() {
+    loadSets := [][]float64{w.Load1, w.Load2, w.Load3}
+    volatilities := []*float64{&w.VolatilityLoad1, &w.VolatilityLoad2, &w.VolatilityLoad3}
+
+    for i, numbers := range loadSets {
+        if len(numbers) == 0 {
+            continue
+        }
+
+        sum := 0.0
+        max := numbers[0]
+        min := numbers[0]
+
+        for _, number := range numbers {
+            sum += number
+            if number > max {
+                max = number
+            }
+            if number < min {
+                min = number
+            }
+        }
+
+        avg := sum / float64(len(numbers))
+        upwardVolatility := math.Round((max - avg) * 100 / avg)
+        downwardVolatility := math.Round((avg - min) * 100 / avg)
+
+        // Use the greater of the two volatilities
+        if upwardVolatility > downwardVolatility {
+            *volatilities[i] = float64(upwardVolatility)
+        } else {
+            *volatilities[i] = float64(downwardVolatility)
+        }
+    }
 }
