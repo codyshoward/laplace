@@ -16,24 +16,51 @@ type Workload struct {
     ValueGenerated int       `json:"valueGenerated"`
 }
 
-func NewWorkload(name string, numIntegers int) *Workload {
+const (
+    highVolatilityPercentage = 30 // 30% of the workloads will have high volatility
+)
+
+// Modified NewWorkload function
+func NewWorkload(name string, numIntegers int, isVolatile bool) *Workload {
+    var maxRange float64 = 100
+
+    if isVolatile {
+        maxRange = 200 // Higher range for volatile workloads
+    }
+
+    // Adjust ValueGenerated with potential for higher volatility
+    valueGenerated := rand.Intn(100) + 1
+    if isVolatile {
+        valueGenerated += rand.Intn(200) // Adding more variability
+    }
+
     return &Workload{
         Name:           name,
-        Load1:          generateRandomSlice(numIntegers),
-        Load2:          generateRandomSlice(numIntegers),
-        Load3:          generateRandomSlice(numIntegers),
-        ValueGenerated: rand.Intn(100) + 1, // Random number between 1 and 100
+        Load1:          generateRandomSlice(numIntegers, maxRange, isVolatile),
+        Load2:          generateRandomSlice(numIntegers, maxRange, isVolatile),
+        Load3:          generateRandomSlice(numIntegers, maxRange, isVolatile),
+        ValueGenerated: valueGenerated,
     }
 }
 
-func generateRandomSlice(n int) []float64 {
+
+// Updated generateRandomSlice function
+func generateRandomSlice(n int, maxRange float64, isVolatile bool) []float64 {
     slice := make([]float64, n)
     for i := 0; i < n; i++ {
-        // Generate a random float64 number. You can adjust the range as needed.
-        slice[i] = rand.Float64() * 100 // Random float64 number between 0 and 100
+        baseValue := rand.Float64() * maxRange
+        if isVolatile {
+            // Add volatility: modify the base value randomly
+            volatilityFactor := rand.NormFloat64() * maxRange / 2
+            slice[i] = baseValue + volatilityFactor
+        } else {
+            slice[i] = baseValue
+        }
     }
     return slice
 }
+
+
 
 func (w *Workload) SerializeToJson() ([]byte, error) {
     data, err := json.MarshalIndent(struct {
@@ -45,22 +72,46 @@ func (w *Workload) SerializeToJson() ([]byte, error) {
     return data, nil
 }
 
+
 func main() {
     rand.Seed(time.Now().UnixNano())
-        rand.Seed(time.Now().UnixNano())
 
-        var numWorkloads, numIntegers int
-        fmt.Print("Enter the number of workloads: ")
-        fmt.Scanln(&numWorkloads)
-        fmt.Print("Enter the number of integers in each load: ")
-        fmt.Scanln(&numIntegers)
+    // User input for number of workloads and integers per load
+    var numWorkloads, numIntegers int
+    fmt.Print("Enter the number of workloads: ")
+    fmt.Scanln(&numWorkloads)
+    fmt.Print("Enter the number of integers in each load: ")
+    fmt.Scanln(&numIntegers)
 
-        workloads := make([]Workload, numWorkloads)
-        for i := 0; i < numWorkloads; i++ {
-                name := fmt.Sprintf("Workload%d", i+1)
-                workload := NewWorkload(name, numIntegers)
-                workloads[i] = *workload
-        }
+    // Initialize workloads slice
+    workloads := make([]Workload, numWorkloads)
+
+    // Determine counts for less volatile and volatile workloads
+    numLessVolatile := int(float64(numWorkloads) * 30 / 100)
+    numVolatile := numWorkloads - numLessVolatile
+
+    // Create a slice of indices and shuffle it
+    indices := make([]int, numWorkloads)
+    for i := range indices {
+        indices[i] = i
+    }
+    rand.Shuffle(len(indices), func(i, j int) {
+        indices[i], indices[j] = indices[j], indices[i]
+    })
+
+    // Assign volatility based on shuffled indices
+    isVolatileMap := make(map[int]bool)
+    for _, idx := range indices[:numVolatile] {
+        isVolatileMap[idx] = true
+    }
+
+    // Generate workloads with specified volatility
+    for i := 0; i < numWorkloads; i++ {
+        name := fmt.Sprintf("Workload%d", i+1)
+        isVolatile := isVolatileMap[i]
+        workload := NewWorkload(name, numIntegers, isVolatile)
+        workloads[i] = *workload
+    }
 
         for _, workload := range workloads {
                 data, err := workload.SerializeToJson()
