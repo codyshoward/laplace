@@ -38,3 +38,7 @@ BenchMark Hardware: Ryzen 1920, 128GB 2666hz mem.
 12:59:20 Finish workload analyzing.
 100,000 datapoints. 
 
+Working on....
+now lets calculate the relative volatility from each workload by averaging each workload's  loads volatility with each other and add that to the print function
+creating the code for applying weights to the cost/volatility balancing for optimal distribution options. ensure volatility ranges, isolation and scaling options. 
+
