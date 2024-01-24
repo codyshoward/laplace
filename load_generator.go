@@ -10,9 +10,9 @@ import (
 
 type Workload struct {
     Name           string    `json:"name"`
-    Load1          []float64 `json:"load1"`
-    Load2          []float64 `json:"load2"`
-    Load3          []float64 `json:"load3"`
+    Load1          []TimedValue `json:"load1"`
+    Load2          []TimedValue `json:"load2"`
+    Load3          []TimedValue `json:"load3"`
     ValueGenerated int       `json:"valueGenerated"`
 }
 
@@ -36,29 +36,40 @@ func NewWorkload(name string, numIntegers int, isVolatile bool) *Workload {
 
     return &Workload{
         Name:           name,
-        Load1:          generateRandomSlice(numIntegers, maxRange, isVolatile),
-        Load2:          generateRandomSlice(numIntegers, maxRange, isVolatile),
-        Load3:          generateRandomSlice(numIntegers, maxRange, isVolatile),
+        Load1:          generateTimedRandomSlice(numIntegers, maxRange, isVolatile),
+        Load2:          generateTimedRandomSlice(numIntegers, maxRange, isVolatile),
+        Load3:          generateTimedRandomSlice(numIntegers, maxRange, isVolatile),
         ValueGenerated: valueGenerated,
     }
 }
 
 
-// Updated generateRandomSlice function
-func generateRandomSlice(n int, maxRange float64, isVolatile bool) []float64 {
-    slice := make([]float64, n)
+type TimedValue struct {
+    Timestamp time.Time
+    Value     float64
+}
+
+func generateTimedRandomSlice(n int, maxRange float64, isVolatile bool) []TimedValue {
+    slice := make([]TimedValue, n)
+    startTime := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Local)
+
     for i := 0; i < n; i++ {
-        baseValue := rand.Float64() * maxRange
+        // Generate a random or volatile value
+        generatedValue := rand.Float64() * maxRange
         if isVolatile {
-            // Add volatility: modify the base value randomly
-            volatilityFactor := rand.NormFloat64() * maxRange / 2
-            slice[i] = baseValue + volatilityFactor
-        } else {
-            slice[i] = baseValue
+            // Apply your volatility logic here
+            generatedValue += rand.NormFloat64() * maxRange / 2
+        }
+
+        // Store the timestamp and value
+        slice[i] = TimedValue{
+            Timestamp: startTime.Add(time.Duration(i) * time.Minute),
+            Value:     generatedValue,
         }
     }
     return slice
 }
+
 
 
 
@@ -136,4 +147,20 @@ func main() {
 
                 fmt.Printf("Workload %s generated and saved in %s.json\n", workload.Name, workload.Name)
         }
+}
+func generateWorkloads(numWorkloads, numIntegers int) []Workload {
+    var workloads []Workload
+
+    // Determine counts for less volatile and volatile workloads
+    numLessVolatile := int(float64(numWorkloads) * 30 / 100)
+
+    for i := 0; i < numWorkloads; i++ {
+        // Determine the volatility for the workload
+        isVolatile := i >= numLessVolatile // First 30% will be less volatile
+
+        workload := NewWorkload(fmt.Sprintf("Workload%d", i+1), numIntegers, isVolatile)
+        workloads = append(workloads, *workload)
+    }
+
+    return workloads
 }
