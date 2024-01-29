@@ -10,6 +10,7 @@ import (
     "time"
     "sort"
     "encoding/csv"
+    "strconv"
 )
 
 type Workload struct {
@@ -37,8 +38,8 @@ type Data struct {
 }
 
 type TimedValue struct {
-    Timestamp time.Time
-    Value     float64
+    Timestamp time.Time `json:"timestamp"`
+    Value     float64   `json:"value"`
 }
 
 type SummedWorkload struct {
@@ -83,6 +84,86 @@ func main() {
     if errExport != nil {
         log.Printf("Error exporting data to CSV: %v", errExport)
     }
+        // Find the peak usage
+    peakUsage := findPeakUsage(data.Workloads)
+
+    // Print the peak usage information
+    fmt.Printf("\nPeak Usage Information:\n")
+    fmt.Printf("Timestamp of Peak Usage: %v\n", peakUsage.Timestamp)
+    fmt.Printf("Total Usage at Peak: %.2f\n", peakUsage.TotalUsage)
+        // Calculate contributions at peak
+    var contributions []WorkloadContribution
+    for _, workload := range data.Workloads {
+        totalLoadAtPeak := getLoadAtTimestamp(workload.Load1, peakUsage.Timestamp) +
+                          getLoadAtTimestamp(workload.Load2, peakUsage.Timestamp) +
+                          getLoadAtTimestamp(workload.Load3, peakUsage.Timestamp)
+
+        contributions = append(contributions, WorkloadContribution{
+            Name: workload.Name,
+            LoadAtPeak: totalLoadAtPeak,
+        })
+    }
+
+    // Sort by load at peak
+    sort.Slice(contributions, func(i, j int) bool {
+        return contributions[i].LoadAtPeak > contributions[j].LoadAtPeak
+    })
+
+    // Select top 10%
+    topTenPercentIndex := len(contributions) / 10
+    topContributors := contributions[:topTenPercentIndex]
+
+    // Print top contributors
+    fmt.Println("\nTop 10% Workloads Contributing to Peak Usage:")
+    for _, contributor := range topContributors {
+        fmt.Printf("Workload: %s, Load at Peak: %.2f\n", contributor.Name, contributor.LoadAtPeak)
+    }
+       // Calculate volatilities and sort
+    var volatilities []WorkloadVolatility
+    for _, workload := range data.Workloads {
+        vol1, vol2, vol3, _ := CalculateRelativeVolatility(workload, 5*time.Minute)
+        avgVolatility := (vol1 + vol2 + vol3) / 3
+        volatilities = append(volatilities, WorkloadVolatility{Name: workload.Name, Volatility: avgVolatility})
+    }
+    sort.Slice(volatilities, func(i, j int) bool {
+        return volatilities[i].Volatility > volatilities[j].Volatility
+    })
+
+    // Divide into thirds
+    highVolatility := volatilities[:len(volatilities)/3]
+    mediumVolatility := volatilities[len(volatilities)/3 : 2*len(volatilities)/3]
+    lowVolatility := volatilities[2*len(volatilities)/3:]
+
+    // Print workloads in each group
+    fmt.Println("\nHigh Volatility Workloads:")
+    for _, workload := range highVolatility {
+        fmt.Println(workload.Name)
+    }
+
+    fmt.Println("\nMedium Volatility Workloads:")
+    for _, workload := range mediumVolatility {
+        fmt.Println(workload.Name)
+    }
+
+    fmt.Println("\nLow Volatility Workloads:")
+    for _, workload := range lowVolatility {
+        fmt.Println(workload.Name)
+    }
+
+    err = writeVolatilityToFile("output.csv", "volatility_output.csv")
+    if err != nil {
+        panic(err)
+    }
+    // Assuming 'data' is a variable of type Data
+    err = WriteWorkloadVolatilityToFile(&data, "workload_volatility.csv") // Pass a pointer to data
+    if err != nil {
+        panic(err)
+    }
+    // Assuming 'data' is a variable of type Data
+    err = WriteWorkloadIntervalVolatilityToFile(&data, "workload_volatility_intervals.csv") // Pass a pointer to data
+    if err != nil {
+       panic(err)
+        }
 }
 
 func processFile(filename string) {
@@ -183,6 +264,13 @@ func calculateRelativeContributionsAndDeviations(workload *Workload, grandTotalL
     if totalValueGenerated > 0 {
         workload.RelativeValueGenerated = (workload.ValueGenerated / totalValueGenerated) * 100
     }
+    // Calculate volatilities
+    volatilityLoad1, volatilityLoad2, volatilityLoad3, err := CalculateRelativeVolatility(*workload, 5 * time.Minute)
+    if err != nil {
+        fmt.Printf("Error calculating volatility for workload %s: %v\n", workload.Name, err)
+        return
+    }
+
 
     // Calculate deviations
     totalLoad := workload.TotalLoad1.Value + workload.TotalLoad2.Value + workload.TotalLoad3.Value
@@ -204,6 +292,9 @@ func calculateRelativeContributionsAndDeviations(workload *Workload, grandTotalL
     fmt.Printf("  Total Cost: %.2f\n", workload.TotalCost)
     fmt.Printf("  Total Relative Load and Cost: %.2f%%\n", workload.RelativeCost)
     fmt.Printf("  Relative Value Generated: %.2f%%\n", workload.RelativeValueGenerated)
+    fmt.Printf("  Volatility Load 1: %.2f\n", volatilityLoad1)
+    fmt.Printf("  Volatility Load 2: %.2f\n", volatilityLoad2)
+    fmt.Printf("  Volatility Load 3: %.2f\n", volatilityLoad3)
     // Add two empty lines for separation
     fmt.Println()
     fmt.Println()
@@ -360,4 +451,399 @@ func validateWorkloadSynchronization(workload Workload) error {
         return fmt.Errorf("workload '%s' has unsynchronized load arrays", workload.Name)
     }
     return nil
+}
+func CalculateRelativeVolatility(workload Workload, interval time.Duration) (float64, float64, float64, error) {
+    load1Averages, err := calculateIntervalAverages(workload.Load1, interval)
+    if err != nil {
+        return 0, 0, 0, err
+    }
+    load2Averages, err := calculateIntervalAverages(workload.Load2, interval)
+    if err != nil {
+        return 0, 0, 0, err
+    }
+    load3Averages, err := calculateIntervalAverages(workload.Load3, interval)
+    if err != nil {
+        return 0, 0, 0, err
+    }
+
+    volatilityLoad1 := calculateStandardDeviation(load1Averages)
+    volatilityLoad2 := calculateStandardDeviation(load2Averages)
+    volatilityLoad3 := calculateStandardDeviation(load3Averages)
+
+    return volatilityLoad1, volatilityLoad2, volatilityLoad3, nil
+}
+
+func calculateIntervalAverages(timedValues []TimedValue, interval time.Duration) ([]float64, error) {
+    if len(timedValues) == 0 {
+        return nil, fmt.Errorf("timedValues is empty")
+    }
+
+    var intervalAverages []float64
+    var sum float64
+    var count int
+    startTime := timedValues[0].Timestamp
+
+    for _, timedValue := range timedValues {
+        if timedValue.Timestamp.Sub(startTime) <= interval {
+            sum += timedValue.Value
+            count++
+        } else {
+            intervalAverages = append(intervalAverages, sum/float64(count))
+            sum = timedValue.Value
+            count = 1
+            startTime = timedValue.Timestamp
+        }
+    }
+    // Add the last interval's average if any data is left
+    if count > 0 {
+        intervalAverages = append(intervalAverages, sum/float64(count))
+    }
+
+    return intervalAverages, nil
+}
+
+func calculateStandardDeviation(values []float64) float64 {
+    if len(values) == 0 {
+        return 0
+    }
+
+    mean := 0.0
+    for _, v := range values {
+        mean += v
+    }
+    mean /= float64(len(values))
+
+    variance := 0.0
+    for _, v := range values {
+        variance += (v - mean) * (v - mean)
+    }
+    variance /= float64(len(values))
+
+    return math.Sqrt(variance)
+}
+type PeakUsage struct {
+    Timestamp time.Time
+    TotalUsage float64
+}
+
+func findPeakUsage(workloads []Workload) PeakUsage {
+    usageMap := make(map[time.Time]float64)
+
+    for _, workload := range workloads {
+        for _, load := range workload.Load1 {
+            usageMap[load.Timestamp] += load.Value
+        }
+        for _, load := range workload.Load2 {
+            usageMap[load.Timestamp] += load.Value
+        }
+        for _, load := range workload.Load3 {
+            usageMap[load.Timestamp] += load.Value
+        }
+    }
+
+    var peakUsage PeakUsage
+    for timestamp, totalUsage := range usageMap {
+        if totalUsage > peakUsage.TotalUsage {
+            peakUsage = PeakUsage{
+                Timestamp: timestamp,
+                TotalUsage: totalUsage,
+            }
+        }
+    }
+
+    return peakUsage
+}
+func getLoadAtTimestamp(timedValues []TimedValue, timestamp time.Time) float64 {
+    for _, tv := range timedValues {
+        if tv.Timestamp == timestamp {
+            return tv.Value
+        }
+    }
+    return 0
+}
+type WorkloadContribution struct {
+    Name       string
+    LoadAtPeak float64
+}
+
+type WorkloadVolatility struct {
+    Name       string
+    Volatility float64
+}
+
+func writeVolatilityToFile(csvInputFile, outputFile string) error {
+    f, err := os.Open(csvInputFile)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+
+    r := csv.NewReader(f)
+    records, err := r.ReadAll()
+    if err != nil {
+        return err
+    }
+
+    outFile, err := os.Create(outputFile)
+    if err != nil {
+        return err
+    }
+    defer outFile.Close()
+
+    writer := csv.NewWriter(outFile)
+    defer writer.Flush()
+
+    // Write header
+    header := []string{"Time"}
+    for i := 1; i < len(records[0]); i++ {
+        header = append(header, fmt.Sprintf("Volatility Load %d", i))
+    }
+    if err := writer.Write(header); err != nil {
+        return err
+    }
+
+    // Calculate and write volatilities
+    for i := 5; i < len(records); i += 5 {
+        var row []string
+        row = append(row, records[i][0]) // Add timestamp
+        for j := 1; j < len(records[0]); j++ {
+            volatility, err := calculateVolatilityAtInterval(records, j, i)
+            if err != nil {
+                return err
+            }
+            row = append(row, fmt.Sprintf("%.2f", volatility))
+        }
+        if err := writer.Write(row); err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
+
+
+func calculateVolatilityAtInterval(records [][]string, column, interval int) (float64, error) {
+    var values []float64
+
+    // Calculate the start index for the 5-minute interval
+    start := interval - 5
+    if start < 0 {
+        start = 0
+    }
+
+    // Collect values for the interval
+    for i := start; i < interval && i < len(records); i++ {
+        value, err := strconv.ParseFloat(records[i][column], 64)
+        if err != nil {
+            return 0.0, err
+        }
+        values = append(values, value)
+    }
+
+    return calculateStandardDeviation(values), nil
+}
+
+
+func calculateStandardDeviationIntervals(values []float64) float64 {
+    if len(values) == 0 {
+        return 0.0
+    }
+
+    mean := 0.0
+    for _, v := range values {
+        mean += v
+    }
+    mean /= float64(len(values))
+
+    variance := 0.0
+    for _, v := range values {
+        variance += (v - mean) * (v - mean)
+    }
+    variance /= float64(len(values) - 1) // Use (N-1) for sample standard deviation
+
+    return math.Sqrt(variance)
+}
+
+func CalculateWorkloadIntervalSums(data *Data) map[string][]TimedValue {
+    intervalSums := make(map[string][]TimedValue)
+
+    for _, workload := range data.Workloads {
+        var intervalSum []TimedValue
+
+        // Assuming the loads are in chronological order and each represents a minute
+        for i := 0; i < len(workload.Load1); i += 5 {
+            sum := 0.0
+
+            // Calculate sum for the interval
+            for j := i; j < i+5 && j < len(workload.Load1); j++ {
+                sum += workload.Load1[j].Value + workload.Load2[j].Value + workload.Load3[j].Value
+            }
+
+            // Add interval sum to the list
+            intervalSum = append(intervalSum, TimedValue{
+                Timestamp: workload.Load1[i].Timestamp,
+                Value:     sum,
+            })
+        }
+
+        intervalSums[workload.Name] = intervalSum
+    }
+
+    return intervalSums
+}
+
+func calculateLoadSumInIntervals(workload Workload, interval int) ([]float64, error) {
+    var sums []float64
+    for i := 0; i < len(workload.Load1); i += interval {
+        sum := 0.0
+        count := 0
+        for j := i; j < i+interval && j < len(workload.Load1); j++ {
+            sum += workload.Load1[j].Value + workload.Load2[j].Value + workload.Load3[j].Value
+            count++
+        }
+        if count > 0 {
+            sums = append(sums, sum/float64(count)) // Average sum for this interval
+        }
+    }
+    return sums, nil
+}
+
+func calculateVolatility(sums []float64) float64 {
+    mean, variance := 0.0, 0.0
+    for _, sum := range sums {
+        mean += sum
+    }
+    mean /= float64(len(sums))
+
+    for _, sum := range sums {
+        variance += (sum - mean) * (sum - mean)
+    }
+    variance /= float64(len(sums))
+
+    return math.Sqrt(variance)
+}
+
+func WriteWorkloadVolatilityToFile(data *Data, outputFile string) error {
+    file, err := os.Create(outputFile)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+
+    writer := csv.NewWriter(file)
+    defer writer.Flush()
+
+    // Write the header
+    if err := writer.Write([]string{"Workload", "Volatility"}); err != nil {
+        return err
+    }
+
+    for _, workload := range data.Workloads {
+        sums, err := calculateLoadSumInIntervals(workload, 5) // 5-minute intervals
+        if err != nil {
+            return err
+        }
+
+        volatility := calculateVolatility(sums)
+
+        record := []string{
+            workload.Name,
+            fmt.Sprintf("%.2f", volatility),
+        }
+
+        if err := writer.Write(record); err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+func calculateIntervalSumsWithTimestamps(workload Workload, intervalSize int) ([]TimedValue, error) {
+    var intervalSums []TimedValue
+
+    for i := 0; i < len(workload.Load1); i += intervalSize {
+        sum := 0.0
+        count := 0
+        var timestamp time.Time
+
+        for j := i; j < i+intervalSize && j < len(workload.Load1); j++ {
+            sum += workload.Load1[j].Value + workload.Load2[j].Value + workload.Load3[j].Value
+            timestamp = workload.Load1[j].Timestamp
+            count++
+        }
+
+        if count > 0 {
+            avgSum := sum / float64(count)
+            intervalSums = append(intervalSums, TimedValue{Timestamp: timestamp, Value: avgSum})
+        }
+    }
+
+    return intervalSums, nil
+}
+
+func calculateVolatilityIntervals(intervalSums []TimedValue) float64 {
+    var values []float64
+    for _, timedValue := range intervalSums {
+        values = append(values, timedValue.Value)
+    }
+    return calculateStandardDeviation(values)
+}
+func WriteWorkloadIntervalVolatilityToFile(data *Data, outputFile string) error {
+    file, err := os.Create(outputFile)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+
+    writer := csv.NewWriter(file)
+    defer writer.Flush()
+
+    if err := writer.Write([]string{"Timestamp", "Workload", "Change"}); err != nil {
+        return err
+    }
+
+    for _, workload := range data.Workloads {
+        intervalChanges, err := calculateIntervalSumChanges(workload, 5) // 5-minute intervals
+        if err != nil {
+            return err
+        }
+
+        for _, intervalChange := range intervalChanges {
+            record := []string{
+                intervalChange.Timestamp.Format(time.RFC3339),
+                workload.Name,
+                fmt.Sprintf("%.2f", intervalChange.Value),
+            }
+            if err := writer.Write(record); err != nil {
+                return err
+            }
+        }
+    }
+
+    return nil
+}
+
+func calculateIntervalSumChanges(workload Workload, intervalSize int) ([]TimedValue, error) {
+    var intervalSums []TimedValue
+
+    var previousSum float64
+    for i := 0; i < len(workload.Load1); i += intervalSize {
+        sum := 0.0
+        var timestamp time.Time
+
+        for j := i; j < i+intervalSize && j < len(workload.Load1); j++ {
+            sum += workload.Load1[j].Value + workload.Load2[j].Value + workload.Load3[j].Value
+            timestamp = workload.Load1[j].Timestamp
+        }
+
+        // Calculate change from the previous interval
+        change := sum - previousSum
+        if i != 0 { // Skip the first interval as it has no previous data
+            intervalSums = append(intervalSums, TimedValue{Timestamp: timestamp, Value: change})
+        }
+        previousSum = sum
+    }
+
+    return intervalSums, nil
 }
