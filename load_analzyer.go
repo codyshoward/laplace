@@ -1,5 +1,6 @@
 package main
 
+// Import necessary packages for handling different functionalities
 import (
     "encoding/json"
     "fmt"
@@ -13,6 +14,7 @@ import (
     "strconv"
 )
 
+// Workload struct represents the data structure for a workload
 type Workload struct {
     Name                  string    `json:"name"`
     Load1                 []TimedValue `json:"load1"`
@@ -33,15 +35,18 @@ type Workload struct {
     Timestamp             time.Time
 }
 
+// Data struct is a container for a slice of Workloads
 type Data struct {
     Workloads []Workload `json:"workloads"`
 }
 
+// TimedValue struct represents a value with an associated timestamp
 type TimedValue struct {
     Timestamp time.Time `json:"timestamp"`
     Value     float64   `json:"value"`
 }
 
+// SummedWorkload struct aggregates the total loads for each timestamp
 type SummedWorkload struct {
     Timestamp   time.Time
     TotalLoad1  float64
@@ -49,49 +54,57 @@ type SummedWorkload struct {
     TotalLoad3  float64
 }
 
+// main is the entry point of the application.
+// It performs a series of operations to process and analyze workload data:
 func main() {
-    files, err := os.ReadDir(".")
+    // Read the current directory to find workload files.
+    files, err := os.ReadDir(".") 
     if err != nil {
         log.Fatalf("Error reading directory: %v", err)
     }
 
-    var data Data // Define the data variable
-    var errExport error // Declare errExport for exportWorkloadToCSV
+    var data Data // Initialize a Data struct to hold all the workload data.
+    var errExport error // Variable to capture any errors during CSV export
 
+    // Iterate over each file in the directory.
     for _, file := range files {
+         // Check if the file name indicates a workload JSON file.
         if strings.HasPrefix(file.Name(), "Workload") && strings.HasSuffix(file.Name(), ".json") {
+            // Load the workload data from the JSON file.
             loadedData, err := LoadData(file.Name()) // Load the data from the file
-            if err != nil {
+            if err != nil { 
                 log.Printf("Error loading data from file %s: %v", file.Name(), err)
-                continue
+                continue // Skip to the next file on error.
             }
+            // Append the loaded workloads to the main data struct.
             data.Workloads = append(data.Workloads, loadedData.Workloads...)
         }
     }
 
-    // Calculate statistics for the loaded data
+    // Calculate various statistics for the loaded workload data.
     CalculateWorkloadStats(&data)
 
-    // Aggregate workloads into summed workloads
+    // Aggregate workloads data into a summarized form.
     summedWorkloads, err := aggregateWorkloads(data.Workloads)
     if err != nil {
         log.Printf("Error aggregating workloads: %v", err)
-        return
+        return // Exit if aggregation fails.
     }
 
-    // Call exportWorkloadToCSV to export the data to a CSV file
+    // Export the aggregated workload data to a CSV file.
     errExport = exportWorkloadToCSV(summedWorkloads, "output.csv")
     if errExport != nil {
         log.Printf("Error exporting data to CSV: %v", errExport)
     }
-        // Find the peak usage
+    // Determine the peak usage among all workloads.
     peakUsage := findPeakUsage(data.Workloads)
 
-    // Print the peak usage information
+    // Display the peak usage information.
     fmt.Printf("\nPeak Usage Information:\n")
     fmt.Printf("Timestamp of Peak Usage: %v\n", peakUsage.Timestamp)
     fmt.Printf("Total Usage at Peak: %.2f\n", peakUsage.TotalUsage)
-        // Calculate contributions at peak
+
+    // Calculate and record the contributions of each workload at the peak usage.
     var contributions []WorkloadContribution
     for _, workload := range data.Workloads {
         totalLoadAtPeak := getLoadAtTimestamp(workload.Load1, peakUsage.Timestamp) +
@@ -104,21 +117,22 @@ func main() {
         })
     }
 
-    // Sort by load at peak
+    // Sort the workloads based on their load contribution at the peak time.
     sort.Slice(contributions, func(i, j int) bool {
         return contributions[i].LoadAtPeak > contributions[j].LoadAtPeak
     })
 
-    // Select top 10%
+    // Identify the top 10% contributors at the peak usage.
     topTenPercentIndex := len(contributions) / 10
     topContributors := contributions[:topTenPercentIndex]
 
-    // Print top contributors
+    // Display the top contributing workloads.
     fmt.Println("\nTop 10% Workloads Contributing to Peak Usage:")
     for _, contributor := range topContributors {
         fmt.Printf("Workload: %s, Load at Peak: %.2f\n", contributor.Name, contributor.LoadAtPeak)
     }
-       // Calculate volatilities and sort
+    
+    // Calculate and sort workloads based on their volatility.
     var volatilities []WorkloadVolatility
     for _, workload := range data.Workloads {
         vol1, vol2, vol3, _ := CalculateRelativeVolatility(workload, 5*time.Minute)
@@ -129,12 +143,12 @@ func main() {
         return volatilities[i].Volatility > volatilities[j].Volatility
     })
 
-    // Divide into thirds
+    // Divide the workloads into three categories based on their volatility.
     highVolatility := volatilities[:len(volatilities)/3]
     mediumVolatility := volatilities[len(volatilities)/3 : 2*len(volatilities)/3]
     lowVolatility := volatilities[2*len(volatilities)/3:]
 
-    // Print workloads in each group
+    // Display the workloads in each volatility category.
     fmt.Println("\nHigh Volatility Workloads:")
     for _, workload := range highVolatility {
         fmt.Println(workload.Name)
@@ -149,102 +163,117 @@ func main() {
     for _, workload := range lowVolatility {
         fmt.Println(workload.Name)
     }
-
+    
+    // Write volatility data to a CSV file.
     err = writeVolatilityToFile("output.csv", "volatility_output.csv")
     if err != nil {
         panic(err)
     }
-    // Assuming 'data' is a variable of type Data
+    // Write individual workload volatility data to a CSV file.
     err = WriteWorkloadVolatilityToFile(&data, "workload_volatility.csv") // Pass a pointer to data
     if err != nil {
         panic(err)
     }
-    // Assuming 'data' is a variable of type Data
+    // Write workload volatility intervals to a CSV file.
     err = WriteWorkloadIntervalVolatilityToFile(&data, "workload_volatility_intervals.csv") // Pass a pointer to data
     if err != nil {
        panic(err)
         }
 }
 
+
+// processFile processes a single workload data file.
+// It loads the data, calculates statistics, and can optionally print these statistics.
 func processFile(filename string) {
+     // Load the workload data from the specified file.
     data, err := LoadData(filename)
     if err != nil {
         log.Printf("Error loading data from file %s: %v", filename, err)
-        return
+        return // Exit the function if data loading fails.
     }
 
-    // Calculate statistics for the loaded data
+    // Calculate various statistics for the loaded workload data.
     CalculateWorkloadStats(data)
 
     // Print the calculated statistics
     //PrintWorkloadStats(*data) //HEY LISTEN!! UNCOMMENT FME FOR TSHOOTING
 }
 
+// LoadData loads workload data from a JSON file and returns it as a Data struct.
 func LoadData(filename string) (*Data, error) {
     var data Data
+
+    // Open the file for reading.
     file, err := os.Open(filename)
     if err != nil {
-        return nil, err
+        return nil, err // Return an error if file opening fails.
     }
-    defer file.Close()
+    defer file.Close() // Ensure the file is closed after the function execution.
 
+     // Decode the JSON data into the Data struct.
     jsonDecoder := json.NewDecoder(file)
     if err := jsonDecoder.Decode(&data); err != nil {
-        return nil, err
+        return nil, err // Return an error if JSON decoding fails.
     }
 
-    return &data, nil
+    return &data, nil // Return the loaded data.
 }
 
+// CalculateWorkloadStats calculates various statistics for the workload data.
 func CalculateWorkloadStats(data *Data) (float64, float64, float64, float64, float64) {
+    // Initialize variables to hold cumulative statistics.
     var totalLoad1, totalLoad2, totalLoad3, totalCost, totalValueGenerated float64
 
-    // Sum up all the loads and the value generated across all workloads
+    // Iterate over each workload to sum up loads and value generated.
     for i := range data.Workloads {
         workload := &data.Workloads[i]
 
-         // Normalize the lengths of Load1, Load2, Load3
+        // Normalize the lengths of Load1, Load2, and Load3 to ensure consistency.
         normalizeLoadLengths(&workload.Load1, &workload.Load2, &workload.Load3)
-
+        
+        // Calculate and store the total load for each type.
         workload.TotalLoad1 = TimedValue{Value: sum(workload.Load1)}
         workload.TotalLoad2 = TimedValue{Value: sum(workload.Load2)}
         workload.TotalLoad3 = TimedValue{Value: sum(workload.Load3)}
 
-        //workload.TotalCost = calculateTotalCost(workload.TotalLoad1.Value, workload.TotalLoad2.Value, workload.TotalLoad3.Value)
+        // Calculate the total cost for the workload.
         workload.TotalCost = calculateTotalCost(workload)
 
+        // Accumulate totals across all workloads.
         totalLoad1 += workload.TotalLoad1.Value
         totalLoad2 += workload.TotalLoad2.Value
         totalLoad3 += workload.TotalLoad3.Value
         totalValueGenerated += workload.ValueGenerated
     }
-
+    
+    // Calculate the grand total cost.
     totalCost = totalLoad1 + totalLoad2 + totalLoad3
 
-    // Total load sum
+    // Sum of all loads.
     totalLoadSum := totalLoad1 + totalLoad2 + totalLoad3
 
-    // Initialize grandTotalLoadX variables
+    // Variables for grand total loads.
     var grandTotalLoad1, grandTotalLoad2, grandTotalLoad3 float64
 
-    // Call CalculateGrandSums to calculate the grand totals
+    // Calculate grand totals for each load type.
     CalculateGrandSums(data, &grandTotalLoad1, &grandTotalLoad2, &grandTotalLoad3)
 
-    // Calculate the average total load
+    // Calculate the average load across all workloads.
     averageTotalLoad := totalLoadSum / float64(len(data.Workloads))
 
-    // Variables to accumulate squared deviations
+    // Variables for accumulating deviation sums.
     var upwardDevSum, downwardDevSum float64
 
-    // Calculate relative contributions and deviations
+    // Calculate relative contributions and deviations for each workload.
     for _, workload := range data.Workloads {
         calculateRelativeContributionsAndDeviations(&workload, grandTotalLoad1, grandTotalLoad2, grandTotalLoad3, totalValueGenerated, averageTotalLoad, totalCost, totalLoadSum, &upwardDevSum, &downwardDevSum)
     }
-
+    
+    // Return cumulative statistics.
     return totalLoad1, totalLoad2, totalLoad3, totalCost, totalValueGenerated
 }
 
-
+// calculateRelativeContributionsAndDeviations calculates and sets relative contribution and deviation values for a workload.
 func calculateRelativeContributionsAndDeviations(workload *Workload, grandTotalLoad1, grandTotalLoad2, grandTotalLoad3, totalValueGenerated, averageTotalLoad, totalCost, totalLoadSum float64, upwardDevSum, downwardDevSum *float64) {
     // Calculate relative loads
     if grandTotalLoad1 > 0 {
